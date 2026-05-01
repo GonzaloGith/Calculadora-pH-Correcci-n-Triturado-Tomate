@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Calculadora pH Industrial + Registro</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    :root { --primary: #2e7d32; --bg: #f0f4f3; --accent: #1565c0; }
+    body { font-family: 'Segoe UI', sans-serif; background: var(--bg); margin: 0; padding: 15px; color: #333; }
+    .main-container { display: flex; flex-wrap: wrap; justify-content: center; gap: 15px; max-width: 1100px; margin: 0 auto; }
+    .card { background: white; border-radius: 16px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); padding: 20px; width: 100%; max-width: 320px; }
+    h3 { color: var(--primary); text-align: center; margin: 0 0 15px 0; }
+    .input-group { margin-bottom: 10px; }
+    label { display: block; font-size: 0.85rem; font-weight: 600; color: #666; margin-bottom: 3px; }
+    input { width: 100%; padding: 10px; border: 2px solid #eee; border-radius: 10px; box-sizing: border-box; font-size: 1rem; outline: none; }
+    .botones { display: flex; gap: 8px; margin-top: 15px; }
+    button { flex: 2; padding: 12px; background: var(--primary); color: white; border: none; border-radius: 10px; font-weight: bold; cursor: pointer; transition: 0.3s; }
+    button:hover { opacity: 0.9; }
+    button.reset { flex: 1; background: #e0e0e0; color: #444; }
+    #resultado { margin-top: 15px; padding: 15px; background: #e8f5e9; border-radius: 12px; text-align: center; display: none; border: 1px solid #c8e6c9; }
+    .res-valor { display: block; font-size: 2.5rem; color: var(--primary); font-weight: 800; }
+    #feedback-section { margin-top: 15px; padding: 15px; background: #e3f2fd; border-radius: 12px; display: none; border: 1px solid #bbdefb; }
+    .btn-save { background: var(--accent); margin-top: 10px; width: 100%; }
+    .charts-container { flex: 1; min-width: 320px; display: flex; flex-direction: column; gap: 15px; }
+    .chart-card { background: white; border-radius: 16px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); padding: 15px; }
+    .chart-mini { height: 200px !important; }
+  </style>
+</head>
+<body>
+
+  <div class="main-container">
+    <div class="card">
+      <h3>Ajuste de pH</h3>
+      <div class="input-group"><label>pH Inicial medido:</label><input type="number" id="phIn" step="0.01" value="4.75"></div>
+      <div class="input-group"><label>Temperatura (°C):</label><input type="number" id="temp" step="0.1" value="20.00"></div>
+      <div class="input-group"><label>pH Objetivo:</label><input type="number" id="phObjetivo" step="0.01" value="4.30"></div>
+      <div class="input-group"><label>Kilos de Triturado (KG):</label><input type="number" id="kg" value="30.00"></div>
+
+      <div class="botones">
+        <button onclick="ejecutarCalculo()">CALCULAR</button>
+        <button class="reset" onclick="resetear()">RESET</button>
+      </div>
+
+      <div id="resultado">
+        <div style="font-size:0.85rem;">Sugerencia de adición:</div>
+        <span class="res-valor" id="gramosOut">0.00</span>
+        <div style="font-size:0.85rem;">Gramos de Ácido Cítrico</div>
+      </div>
+
+      <div id="feedback-section">
+        <label style="color: var(--accent); font-weight: bold;">Validación de Campo:</label>
+        <div class="input-group" style="margin-top:10px;">
+          <label>Gramos Reales añadidos:</label>
+          <input type="number" id="gramosReal" step="0.01" placeholder="Ej: 80">
+        </div>
+        <div class="input-group">
+          <label>pH Final obtenido:</label>
+          <input type="number" id="phFinalReal" step="0.01" placeholder="Ej: 4.35">
+        </div>
+        <button class="btn-save" id="btnGuardar" onclick="guardarDatos()">GUARDAR EN SHEETS</button>
+      </div>
+    </div>
+
+    <div class="charts-container">
+      <div class="chart-card chart-mini"><canvas id="graficoBarras"></canvas></div>
+      <div class="chart-card"><canvas id="graficoLog"></canvas></div>
+    </div>
+  </div>
+
+  <script>
+    let chartBarras, chartLog;
+
+    function ejecutarCalculo() {
+      const phIn = parseFloat(document.getElementById('phIn').value);
+      const temp = parseFloat(document.getElementById('temp').value);
+      const phObj = parseFloat(document.getElementById('phObjetivo').value);
+      const kg = parseFloat(document.getElementById('kg').value);
+
+      // Lógica de cálculo
+      const phCorr = phIn - ((temp - 20) * 0.008);
+      const delta = phCorr - phObj;
+      const gramosSugeridos = delta > 0 ? delta * 5.18534271 * kg : 0;
+
+      document.getElementById('gramosOut').innerText = gramosSugeridos.toFixed(2);
+      document.getElementById('resultado').style.display = 'block';
+      document.getElementById('feedback-section').style.display = 'block';
+
+      dibujarBarras(phIn, phCorr, phObj);
+      dibujarLogaritmica(temp, delta);
+    }
+
+    function guardarDatos() {
+      // --- REEMPLAZA ESTA URL ---
+      const urlGoogle = "https://script.google.com/macros/s/AKfycbzNG_IA5jh229x7jit0Ir02R5lUVWNMvq8NXJrk8HeRUb2ToYfbvq8eJELwY7-y8v_D/exec"; 
+      
+      const btn = document.getElementById('btnGuardar');
+      const gReal = document.getElementById('gramosReal').value;
+      const phFReal = document.getElementById('phFinalReal').value;
+      const kgVal = document.getElementById('kg').value;
+
+      if (!gReal || !phFReal) {
+        alert("Completa Gramos Reales y pH Final.");
+        return;
+      }
+
+      btn.innerText = "ENVIANDO...";
+      btn.disabled = true;
+
+      const datos = {
+        phInicial: document.getElementById('phIn').value,
+        temp: document.getElementById('temp').value,
+        phObjetivo: document.getElementById('phObjetivo').value,
+        kg: kgVal,
+        gramosSugeridos: document.getElementById('gramosOut').innerText,
+        gramosReales: gReal,
+        phFinalReal: phFReal
+      };
+
+      fetch(urlGoogle, {
+        method: 'POST',
+        mode: 'no-cors',
+        cache: 'no-cache',
+        body: JSON.stringify(datos)
+      })
+      .then(() => {
+        alert("¡Éxito! Datos de " + kgVal + "kg guardados.");
+        btn.innerText = "REGISTRADO ✓";
+        btn.style.background = "#4caf50";
+      })
+      .catch(err => {
+        alert("Error: " + err);
+        btn.innerText = "REINTENTAR";
+        btn.disabled = false;
+      });
+    }
+
+    function dibujarBarras(ini, corr, obj) {
+      const ctx = document.getElementById('graficoBarras').getContext('2d');
+      if (chartBarras) chartBarras.destroy();
+      chartBarras = new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: ['Inicial', 'Corr 20°C', 'Objetivo'],
+          datasets: [{ 
+            data: [ini, corr, obj], 
+            backgroundColor: ['#ffcdd2', '#bbdefb', '#c8e6c9']
+          }]
+        },
+        options: { maintainAspectRatio: false, plugins: { legend: { display: false } } }
+      });
+    }
+
+    function dibujarLogaritmica(tempActual, deltaActual) {
+      const ctx = document.getElementById('graficoLog').getContext('2d');
+      if (chartLog) chartLog.destroy();
+      const curvaData = [];
+      for (let x = 0.1; x <= 10; x += 0.5) {
+        let y = 0.655 * Math.log(x) + 0.185 - (0.008 * tempActual);
+        curvaData.push({ x: x, y: y });
+      }
+      chartLog = new Chart(ctx, {
+        type: 'line',
+        data: {
+          datasets: [{ label: 'Modelo Log', data: curvaData, borderColor: '#2e7d32', pointRadius: 0 },
+          { label: 'Actual', data: [{ x: Math.max(0.1, deltaActual * 5.185), y: deltaActual }], backgroundColor: '#d32f2f', pointRadius: 6 }]
+        },
+        options: { scales: { x: { type: 'logarithmic' } } }
+      });
+    }
+
+    function resetear() {
+      location.reload();
+    }
+
+    window.onload = ejecutarCalculo;
+  </script>
+</body>
+</html>
